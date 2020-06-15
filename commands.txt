@@ -1,0 +1,61 @@
+#! /bin/bash
+
+apt update -y
+apt install snapd
+
+# Install Docker
+snap install docker
+
+sudo groupadd docker
+sudo usermod -aG docker $USER
+newgrp docker 
+sudo snap disable docker
+sudo snap enable docker
+
+
+# Install microk8s
+sudo snap install microk8s --classic
+sudo usermod -a -G microk8s caiosgon3
+sudo chown -f -R caiosgon3 ~/.kube
+
+microk8s status --wait-ready
+microk8s enable dns
+sudo snap alias microk8s.kubectl kubectl
+
+
+# Create cluster in GKE
+gcloud beta container --project "sincere-bongo-264115" clusters create "cluster-1" --zone "southamerica-east1-b" --no-enable-basic-auth --cluster-version "1.14.10-gke.36" --machine-type "n1-standard-2" --image-type "COS" --disk-type "pd-standard" --disk-size "100" --metadata disable-legacy-endpoints=true --scopes "https://www.googleapis.com/auth/devstorage.read_only","https://www.googleapis.com/auth/logging.write","https://www.googleapis.com/auth/monitoring","https://www.googleapis.com/auth/servicecontrol","https://www.googleapis.com/auth/service.management.readonly","https://www.googleapis.com/auth/trace.append" --num-nodes "3" --enable-stackdriver-kubernetes --enable-ip-alias --network "projects/sincere-bongo-264115/global/networks/default" --subnetwork "projects/sincere-bongo-264115/regions/southamerica-east1/subnetworks/default" --default-max-pods-per-node "110" --no-enable-master-authorized-networks --addons HorizontalPodAutoscaling,HttpLoadBalancing --enable-autoupgrade --enable-autorepair --max-surge-upgrade 1 --max-unavailable-upgrade 0
+
+# k8s setup namespace and service_account
+kubectl create namespace spark
+kubectl create serviceaccount spark -n spark
+kubectl create clusterrolebinding spark-role --clusterrole=edit --serviceaccount=spark:spark --namespace=spark
+
+# Build pyspark Docker image from spark repository
+wget -qO- https://downloads.apache.org/spark/spark-2.4.5/spark-2.4.5-bin-hadoop2.7.tgz | tar -xzf -
+cd spark-2.4.5-bin-hadoop2.7
+bin/docker-image-tool.sh build -p kubernetes/dockerfiles/spark/bindings/python/Dockerfile
+docker login --username=caiosgon3 --email=caiosgon3@gmail.com
+docker tag spark-py caiosgon3/spark-py:latest
+docker push caiosgon3/spark-py:latest
+
+kubectl apply -f deployment.yaml
+kubectl get all -n spark
+
+kubectl delete --all deployments -n=spark
+kubectl delete --all services -n=spark
+kubectl get deployments --all-namespaces | grep tiller
+kubectl delete deployment tiller-deploy -n kube-system
+kubectl delete service tiller-deploy -n kube-system
+helm delete --purge jupyter
+
+
+helm init
+kubectl create clusterrolebinding spark-role-kube --clusterrole=edit --serviceaccount=kube-system:default --namespace=spark
+
+git clone https://github.com/SnappyDataInc/spark-on-k8s
+helm install --name jupyter --namespace spark ./spark-on-k8s/charts/jupyter-with-spark/
+# pass: abc123
+
+kubectl get nodes --output wide
+gcloud compute firewall-rules create test-node-port --allow tcp:node-port

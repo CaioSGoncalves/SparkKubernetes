@@ -1,0 +1,23 @@
+gcloud config set compute/zone us-central1-f
+gcloud container clusters create spark-on-gke --machine-type n1-standard-2
+
+
+gcloud container clusters get-credentials cluster-1 --zone southamerica-east1-b --project sincere-bongo-264115
+
+
+kubectl create namespace spark
+
+
+kubectl create serviceaccount spark -n spark
+
+
+kubectl create clusterrolebinding spark-role --clusterrole=edit --serviceaccount=spark:spark --namespace=spark
+
+kubectl create clusterrolebinding user-admin-binding --clusterrole=cluster-admin --user=$(gcloud config get-value account)
+kubectl create clusterrolebinding --clusterrole=cluster-admin --serviceaccount=default:default spark-admin
+
+
+
+http://ftp.unicamp.br/pub/apache/spark/spark-3.0.0-preview2/spark-3.0.0-preview2-bin-hadoop2.7.tgz
+
+
